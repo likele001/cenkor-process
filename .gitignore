@@ -26,3 +26,6 @@ _bak/
 *.log
 logs/
 .DS_Store
+
+# 扩展宿主运行期状态（迁移指纹/.state 等），源码样例目录不受影响
+backend/extensions/.state/

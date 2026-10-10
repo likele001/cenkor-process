@@ -8,7 +8,8 @@
 #   http://<主机IP>:8600   → 后端 API（含 /docs 交互文档）
 #   http://<主机IP>:8082   → 管理后台 Web（容器内 nginx，/api 就地反代到 backend:8600）
 #
-# 默认内置：首启自动建表 + 自动建默认管理员/演示种子（DB_AUTO_CREATE / DB_AUTO_SEED=true）。
+# 默认内置：首启由 entrypoint 自动 `alembic upgrade head` 建表（schema 由 Alembic 管理），
+# 再写入默认管理员/演示种子（DB_AUTO_SEED=true）。DB_AUTO_CREATE 保持 false。
 # 安全：JWT_SECRET 生产务必自设强随机值（≥32 位），切勿使用默认值。
 services:
   mysql:
@@ -59,7 +60,7 @@ services:
       APP_PORT: "8600"
       DB_URL: "mysql+pymysql://cenkorpro:cenkorpro@mysql:3306/cenkorpro?charset=utf8mb4"
       DB_ECHO: "false"
-      DB_AUTO_CREATE: "true"
+      DB_AUTO_CREATE: "false"
       DB_AUTO_SEED: "true"
       REDIS_URL: "redis://redis:6379/0"
       JWT_SECRET: "${JWT_SECRET:-MUST_CHANGE_ME_in_production}"
