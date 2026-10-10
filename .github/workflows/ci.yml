@@ -1,0 +1,60 @@
+# CI 门禁（cenkor-process）：PR / push 到主干时自动校验「后端可导入 + Alembic 迁移冒烟」。
+# 迁移冒烟在空 SQLite 上跑 upgrade head → 校验建表数 → downgrade base，红则不可合并。
+name: CI
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: ["master", "main"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: 后端与数据库迁移冒烟
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      # 无 .env：给出可预测的最小配置。迁移冒烟显式使用 SQLite 文件库，绝不连真实 MySQL。
+      APP_ENV: ci
+      DB_AUTO_CREATE: "false"
+      DB_AUTO_SEED: "false"
+      JWT_SECRET: "ci_placeholder_secret_0123456789abcdef0123456789abcdef"
+      EXTENSIONS_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 后端可导入自检（app.main 装配不报错）
+        env:
+          DB_URL: "sqlite+pysqlite:///:memory:"
+        run: python -c "import app.main; print('app.main import OK')"
+
+      - name: Alembic 迁移冒烟（空 SQLite upgrade→校验建表→downgrade）
+        env:
+          DB_URL: "sqlite:///./ci_smoke.db"
+        run: python scripts/smoke_alembic.py
+
+      - name: 清理冒烟产物
+        if: always()
+        run: rm -f ci_smoke.db ci_smoke.db-journal ci_smoke.db-wal ci_smoke.db-shm
