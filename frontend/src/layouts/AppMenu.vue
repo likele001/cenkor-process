@@ -25,6 +25,17 @@
         <span>{{ t(it.i18nKey) }}</span>
       </el-menu-item>
     </el-sub-menu>
+
+    <el-sub-menu v-if="extMenuItems.length" index="ext-apps">
+      <template #title>
+        <el-icon><Grid /></el-icon>
+        <span>{{ t('menu.extensions') }}</span>
+      </template>
+      <el-menu-item v-for="it in extMenuItems" :key="it.path" :index="it.path">
+        <el-icon><component :is="iconOf(it.icon)" /></el-icon>
+        <span>{{ extMenuLabel(it) }}</span>
+      </el-menu-item>
+    </el-sub-menu>
   </el-menu>
 </template>
 
@@ -40,6 +51,7 @@ import {
   Coin,
   DocumentChecked,
   Files,
+  Grid,
   House,
   Notebook,
   Odometer,
@@ -50,6 +62,10 @@ import {
   Tickets,
   WarningFilled,
 } from '@element-plus/icons-vue'
+
+import * as ElIcons from '@element-plus/icons-vue'
+import { useAuthStore } from '@/stores/auth'
+import { extensionMenus, type ExtensionMenu } from '@/utils/extensionLoader'
 
 const { t } = useI18n()
 
@@ -70,6 +86,24 @@ type Group = { key: string; i18nKey: string; icon: Component; items: Leaf[] }
 
 const route = useRoute()
 const active = computed(() => route.path)
+
+const auth = useAuthStore()
+
+/** 已加载扩展的菜单项（按当前用户权限过滤） */
+const extMenuItems = computed(() =>
+  extensionMenus.value.filter((m) => auth.hasAnyPermission(m.permission ? [m.permission] : undefined))
+)
+
+/** 插件菜单图标名 → Element Plus 图标组件（未命中时回退 Grid） */
+function iconOf(name?: string): Component {
+  if (!name) return Grid
+  const mod = ElIcons as unknown as Record<string, Component>
+  return mod[name] || Grid
+}
+
+function extMenuLabel(m: ExtensionMenu & { key: string }): string {
+  return m.i18nKey ? t(m.i18nKey) : m.title
+}
 
 const groups: Group[] = [
   {

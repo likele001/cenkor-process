@@ -47,6 +47,7 @@ export default {
   },
   menu: {
     home: '概览',
+    extensions: '扩展应用',
     login: '登录',
     master: '主数据',
     uoms: '计量单位',

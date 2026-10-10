@@ -4,6 +4,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { i18n } from '@/locales'
 import { tryRecoverStaleChunk } from '@/utils/chunk-reload'
+import { ensureExtensionsLoaded, hasExtensionRoute } from '@/utils/extensionLoader'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -146,11 +147,27 @@ const routes: RouteRecordRaw[] = [
 
 const router = createRouter({ history: createWebHistory(), routes })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const auth = useAuthStore()
   if (to.meta.public) return true
   if (!auth.hasKey) {
     return { path: '/login', query: { redirect: to.fullPath } }
+  }
+  if (!auth.me) {
+    try {
+      await auth.fetchMe()
+    } catch {
+      auth.logout()
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+  }
+  // 首次进入时加载扩展前端（注册动态路由/菜单/多语言）；
+  // deep-link 命中扩展路由时，解析早于注册会被兜底重定向，需按原路径重试一次
+  if (await ensureExtensionsLoaded()) {
+    const orig = to.redirectedFrom
+    if (orig && hasExtensionRoute(orig.path)) {
+      return { path: orig.fullPath, replace: true }
+    }
   }
   return true
 })
