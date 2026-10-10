@@ -72,8 +72,9 @@ def get_user_permission_codes(db: Session, user_id: int) -> list[str]:
     if not user:
         return []
     if user.is_superuser:
-        # 超管豁免：直接返回全部权限点，无需绑定角色
-        return sorted({code for code, _ in DEFAULT_PERMISSIONS})
+        # 超管豁免：拥有系统内全部权限点（含扩展运行期注入的 ext.*），无需绑定角色
+        db_codes = {p.code for p in db.scalars(select(Permission)).all()}
+        return sorted(db_codes | {code for code, _ in DEFAULT_PERMISSIONS})
     codes: set[str] = set()
     for r in user.roles:
         for p in r.permissions:

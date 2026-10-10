@@ -47,6 +47,7 @@ export default {
   },
   menu: {
     home: 'Overview',
+    extensions: 'Extensions',
     login: 'Login',
     master: 'Master Data',
     uoms: 'Units',

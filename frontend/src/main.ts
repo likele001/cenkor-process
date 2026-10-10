@@ -14,9 +14,14 @@ import './style.css'
 import App from './App.vue'
 import router from './router'
 import { installChunkReloadHandlers } from '@/utils/chunk-reload'
+import { setupExtensionLoader } from '@/utils/extensionLoader'
 
 initAdminTheme()
 installChunkReloadHandlers()
+
+// 扩展前端加载器：绑定 router 并安装 window.Vue / 注册桥 / 宿主请求桥，
+// 供后续 ensureExtensionsLoaded() 注入插件脚本（须在 app.mount 前完成安装）。
+setupExtensionLoader({ router })
 
 const app = createApp(App)
 app.use(createPinia())
