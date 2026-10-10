@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0
 from fastapi import APIRouter, Depends
 
-from app.api.v1 import auth, batch, captcha, compliance, master, public_config, audit as audit_api, rbac, recipe, stock, storage as storage_api, notify_center, extensions as extensions_api
+from app.api.v1 import auth, batch, captcha, compliance, master, public_config, audit as audit_api, rbac, recipe, stock, storage as storage_api, notify_center, extensions as extensions_api, market as market_api
 from app.core.deps import get_current_user, require_write_permission
 
 api_router = APIRouter()
@@ -36,3 +36,6 @@ api_router.include_router(ws_api.router, tags=["ws"])
 
 # 扩展宿主管理 API（登录 + 端点内 setting.manage 门控）
 api_router.include_router(extensions_api.router, prefix="/v1/extensions", tags=["extensions"], dependencies=_biz_deps)
+
+# 应用中心（market）：登录 + 端点内 market.view/market.manage 细粒度门控
+api_router.include_router(market_api.router, prefix="/v1", tags=["market"], dependencies=_biz_deps)

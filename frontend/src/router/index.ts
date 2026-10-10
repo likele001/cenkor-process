@@ -139,6 +139,13 @@ const routes: RouteRecordRaw[] = [
         meta: { title: () => i18n.global.t('menu.alerts') },
       },
 
+      // 应用中心
+      {
+        path: 'system/market',
+        name: 'system-market',
+        component: () => import('@/pages/system/MarketPage.vue'),
+        meta: { title: () => i18n.global.t('menu.market') },
+      },
       { path: ':pathMatch(.*)*', name: 'adminNotFound', redirect: '/home' },
     ],
   },
