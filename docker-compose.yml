@@ -1,0 +1,91 @@
+# CenkorProcess 一键部署（全栈：后端 + 数据库 + 缓存 + 管理前端）
+#
+# 启动：  docker compose up -d --build
+# 停止：  docker compose down            # 保留数据卷
+# 销毁：  docker compose down -v         # 连同 MySQL/Redis/存储数据卷一起删除
+#
+# 端口（可用同目录 .env 覆盖 APP_PORT / WEB_ADMIN_PORT）：
+#   http://<主机IP>:8600   → 后端 API（含 /docs 交互文档）
+#   http://<主机IP>:8082   → 管理后台 Web（容器内 nginx，/api 就地反代到 backend:8600）
+#
+# 默认内置：首启自动建表 + 自动建默认管理员/演示种子（DB_AUTO_CREATE / DB_AUTO_SEED=true）。
+# 安全：JWT_SECRET 生产务必自设强随机值（≥32 位），切勿使用默认值。
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: cenkorpro
+      MYSQL_USER: cenkorpro
+      MYSQL_PASSWORD: cenkorpro
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ucenkorpro", "-pcenkorpro"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [cenkorpro]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [cenkorpro]
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    # 对外端口默认 8600；容器内部固定 8600（前端反代目标）。宿主占用时改 .env 的 APP_PORT。
+    ports:
+      - "${APP_PORT:-8600}:8600"
+    environment:
+      APP_ENV: prod
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8600"
+      DB_URL: "mysql+pymysql://cenkorpro:cenkorpro@mysql:3306/cenkorpro?charset=utf8mb4"
+      DB_ECHO: "false"
+      DB_AUTO_CREATE: "true"
+      DB_AUTO_SEED: "true"
+      REDIS_URL: "redis://redis:6379/0"
+      JWT_SECRET: "${JWT_SECRET:-MUST_CHANGE_ME_in_production}"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [cenkorpro]
+
+  web-admin:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+      args:
+        FRONTEND: frontend
+    restart: unless-stopped
+    ports:
+      - "${WEB_ADMIN_PORT:-8082}:80"
+    depends_on:
+      - backend
+    networks: [cenkorpro]
+
+networks:
+  cenkorpro:
+
+volumes:
+  mysql_data:
+  redis_data:
