@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+celerybeat-schedule*
+
+# 前端
+node_modules/
+dist/
+dist.bak*/
+_bak/
+
+# 环境与密钥
+.env
+.env.*.bak*
+*.bak_*
+.user.ini
+
+# 日志 / OS
+*.log
+logs/
+.DS_Store

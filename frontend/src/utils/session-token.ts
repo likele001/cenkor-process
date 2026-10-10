@@ -1,0 +1,36 @@
+// Copyright (C) 2026 CenkorProcess Project
+// SPDX-License-Identifier: AGPL-3.0
+const REMEMBER_PREF_KEY = 'cenkorprocess_remember_login'
+
+export function loadRememberPreference(): boolean {
+  return localStorage.getItem(REMEMBER_PREF_KEY) === '1'
+}
+
+export function saveRememberPreference(remember: boolean) {
+  localStorage.setItem(REMEMBER_PREF_KEY, remember ? '1' : '0')
+}
+
+function modeKey(tokenKey: string) {
+  return `${tokenKey}_storage_mode`
+}
+
+/** 记住登录 → localStorage；否则 sessionStorage（关浏览器失效） */
+export function setAuthToken(tokenKey: string, token: string, remember: boolean) {
+  sessionStorage.removeItem(tokenKey)
+  localStorage.removeItem(tokenKey)
+  const store = remember ? localStorage : sessionStorage
+  store.setItem(tokenKey, token)
+  localStorage.setItem(modeKey(tokenKey), remember ? 'local' : 'session')
+}
+
+export function getAuthToken(tokenKey: string): string | null {
+  const mode = localStorage.getItem(modeKey(tokenKey)) || 'session'
+  const store = mode === 'local' ? localStorage : sessionStorage
+  return store.getItem(tokenKey)
+}
+
+export function clearAuthToken(tokenKey: string) {
+  sessionStorage.removeItem(tokenKey)
+  localStorage.removeItem(tokenKey)
+  localStorage.removeItem(modeKey(tokenKey))
+}

@@ -1,0 +1,15 @@
+{
+  "key": "demo_hello",
+  "name": "演示扩展 · Hello",
+  "version": "1.0.0",
+  "description": "扩展宿主（A1）自测用最小可插拔扩展：验证热挂载、幂等迁移、启用门控与本地启停。",
+  "icon": "MagicStick",
+  "category": "demo",
+  "vendor": "Cenkor",
+  "permissions": [
+    { "code": "ext.demo_hello.view", "name": "查看演示扩展" }
+  ],
+  "menus": [
+    { "title": "演示扩展", "path": "/ext/demo-hello", "icon": "MagicStick", "permission": "ext.demo_hello.view" }
+  ]
+}
