@@ -35,6 +35,8 @@ DEFAULT_PERMISSIONS: list[tuple[str, str]] = [
     ("role.manage", "角色管理"),
     ("permission.manage", "权限点管理"),
     ("setting.manage", "系统设置"),
+    ("market.view", "应用中心"),
+    ("market.manage", "应用中心管理"),
 ]
 
 DEFAULT_ROLES: list[tuple[str, str]] = [

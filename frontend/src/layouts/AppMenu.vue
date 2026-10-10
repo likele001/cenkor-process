@@ -15,6 +15,11 @@
       <span>{{ t('menu.home') }}</span>
     </el-menu-item>
 
+    <el-menu-item v-if="showMarket" index="/system/market">
+      <el-icon><Shop /></el-icon>
+      <span>{{ t('menu.market') }}</span>
+    </el-menu-item>
+
     <el-sub-menu v-for="g in groups" :key="g.key" :index="g.key">
       <template #title>
         <el-icon><component :is="g.icon" /></el-icon>
@@ -57,6 +62,7 @@ import {
   Odometer,
   OfficeBuilding,
   Share,
+  Shop,
   Stamp,
   Switch,
   Tickets,
@@ -93,6 +99,9 @@ const auth = useAuthStore()
 const extMenuItems = computed(() =>
   extensionMenus.value.filter((m) => auth.hasAnyPermission(m.permission ? [m.permission] : undefined))
 )
+
+/** 应用中心入口（market.view 门控；超管即刻可见） */
+const showMarket = computed(() => auth.hasAnyPermission(['market.view']))
 
 /** 插件菜单图标名 → Element Plus 图标组件（未命中时回退 Grid） */
 function iconOf(name?: string): Component {

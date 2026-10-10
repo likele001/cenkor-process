@@ -6,6 +6,7 @@ from app.models.audit import AuditLog
 from app.models.user import User, user_roles
 from app.models.permission import Permission
 from app.models.role import Role, role_permissions
+from app.models.system_setting import SystemSetting
 from app.models.proc import (
     Batch,
     BatchOperation,
@@ -34,6 +35,7 @@ __all__ = [
     "Permission",
     "Role",
     "role_permissions",
+    "SystemSetting",
     "Warehouse",
     "Uom",
     "UomConversion",

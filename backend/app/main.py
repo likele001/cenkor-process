@@ -217,3 +217,9 @@ def on_startup():
         extension_host.startup_host()
     except Exception as exc:  # noqa: BLE001
         logger.warning("扩展宿主启动失败: %s", exc)
+    # 应用中心：启动授权到期门控线程（daemon，失败开放；幂等）
+    try:
+        from app.api.v1 import market
+        market.start_entitlement_thread()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("应用中心授权门控线程启动失败: %s", exc)
