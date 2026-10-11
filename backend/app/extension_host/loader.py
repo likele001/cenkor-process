@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
@@ -56,12 +57,25 @@ def require_extension(key: str):
 
 
 def _load_module(file: Path, module_name: str):
-    """按文件路径加载 Python 模块（不依赖 sys.path）。"""
+    """按文件路径加载 Python 模块（不依赖 sys.path）。
+
+    必须先注册进 ``sys.modules`` 再 ``exec_module``：pydantic 2.11+ 不再从定义处的
+    栈帧取父命名空间，而是按 ``cls.__module__`` 反查 ``sys.modules``。扩展普遍写了
+    ``from __future__ import annotations``（注解是字符串），未注册时模型会被标记为
+    「待补全」，直到生成 /openapi.json 或首次校验才炸 ``class not fully defined``。
+    order_planning 目前全用 ``dict = Body(...)`` 侥幸避开，但任何声明 pydantic 模型的
+    扩展装上来就会整页文档 500 + 写接口 500。
+    """
     spec = importlib.util.spec_from_file_location(module_name, file)
     if spec is None or spec.loader is None:
         raise ImportError(f"无法加载模块: {file}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(module_name, None)  # 半个模块留在 sys.modules 更糟
+        raise
     return module
 
 
