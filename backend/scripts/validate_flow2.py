@@ -23,7 +23,30 @@ def j(resp):
     return resp.json()
 
 
+def release(c, material_id, lot):
+    """走「收货 -> 检验单 -> 判定放行」链路把批次变成可投料状态。
+
+    A5/P-3 之后收货接口无权写 released，本脚本必须演练真实放行路径。
+    """
+    coa = j(c.post("/api/v1/coa", json={
+        "material_id": material_id, "lot_id": lot["id"], "direction": "incoming",
+        "items": [{"name": "外观", "spec": "正常", "value": "正常", "result": "pass"}],
+    }))
+    if coa["code"] != 200:
+        raise SystemExit(f"建检验单失败: {coa['msg']}")
+    decided = j(c.post(f"/api/v1/coa/{coa['data']['id']}/decide", json={"result": "pass", "released_by": 1}))
+    if decided["code"] != 200:
+        raise SystemExit(f"放行失败: {decided['msg']}")
+    return decided["data"]["lot_status"]
+
+
 with TestClient(app) as c:
+    # A2/A8 后业务端点需鉴权；种子已建 admin/admin123
+    login = j(c.post("/api/auth/login", json={"username": "admin", "password": "admin123"}))
+    if login.get("code") != 200:
+        raise SystemExit(f"登录失败，无法继续验收: {login}")
+    c.headers["Authorization"] = f"Bearer {login['data']['access_token']}"
+
     uoms = {u["code"]: u for u in j(c.get("/api/v1/uoms"))["data"]}
     mats = {m["code"]: m for m in j(c.get("/api/v1/materials"))["data"]}
     wh_rm = j(c.get("/api/v1/warehouses"))["data"][0]["id"]
@@ -78,18 +101,25 @@ with TestClient(app) as c:
 
     print("===== 3. 合批 / 拆批 + 谱系（闸2）=====")
     sugar = mats["RM-SUGAR"]["id"]
-    ids = []
+    lots = []
     for i, qty in enumerate(["100", "250"], start=1):
         lot = j(c.post("/api/v1/stock/lots", json={
             "warehouse_id": wh_rm, "material_id": sugar, "lot_no": f"MGT{STAMP}{i}",
-            "qty": qty, "uom_id": uoms["KG"]["id"], "status": "released",
+            "qty": qty, "uom_id": uoms["KG"]["id"],
         }))["data"]
-        ids.append(lot["id"])
-    print(f"  收到两个待合批批次: {ids}")
+        print(f"  收货 {lot['lot_no']} : status={lot['status']}（默认待放行）")
+        lots.append(lot)
+    for lot in lots:
+        print(f"  检验单放行 {lot['lot_no']} : status={release(c, sugar, lot)}")
+    ids = [lot["id"] for lot in lots]
 
     mg = j(c.post("/api/v1/stock/lots/merge", json={"lot_ids": ids, "lot_no": f"MGC{STAMP}"}))
     print(f"  合批 : code={mg['code']} child={mg['data']['child_lot_no']} qty={mg['data']['merged_qty']}")
     child = mg["data"]["child_lot_id"]
+    if mg["code"] == 200:
+        child_row = next(l for l in j(c.get("/api/v1/stock/lots", params={"material_id": sugar}))["data"]
+                         if l["id"] == child)
+        print(f"  全 released 父批 -> 子批 status={child_row['status']}")
     g = j(c.get(f"/api/v1/stock/genealogy/{child}"))["data"]
     print(f"  合批谱系 parents : {[(p['lot_id'], p['op_type'], str(p['amount'])) for p in g['parents']]}")
 
@@ -104,13 +134,17 @@ with TestClient(app) as c:
     }))["data"]
     o_lot = j(c.post("/api/v1/stock/lots", json={
         "warehouse_id": wh_rm, "material_id": other["id"], "lot_no": f"OT{STAMP}",
-        "qty": "100", "uom_id": uoms["KG"]["id"], "status": "released",
+        "qty": "100", "uom_id": uoms["KG"]["id"],
     }))["data"]
+    print(f"  未放行批投料前 : {o_lot['lot_no']} status={o_lot['status']}")
     payload = {
         "warehouse_id": wh_rm, "produced_qty": "490", "auto_issue": False,
         "dispenses": [{"material_id": other["id"], "planned_qty": "5", "actual_qty": "5",
                        "uom_id": uoms["KG"]["id"], "lot_id": o_lot["id"]}],
     }
+    r = j(c.post(f"/api/v1/batches/{bid}/complete", json=payload))
+    print(f"  未放行拦截 : code={r['code']} msg={r['msg']}")
+    print(f"  检验单放行 OT{STAMP} : status={release(c, other['id'], o_lot)}")
     r = j(c.post(f"/api/v1/batches/{bid}/complete", json=payload))
     print(f"  未放开 : code={r['code']} msg={r['msg']}")
     payload["allow_unplanned"] = True
@@ -134,5 +168,27 @@ with TestClient(app) as c:
     r = j(c.post(f"/api/v1/batches/{b2['id']}/complete", json=body))
     print(f"  放开负库存 : code={r['code']} msg={r['msg']}")
     settings.ALLOW_NEGATIVE_STOCK = False
+
+    print("===== 6. 收货接口无权放行（P-3）=====")
+    r = j(c.post("/api/v1/stock/lots", json={
+        "warehouse_id": wh_rm, "material_id": sugar, "lot_no": f"P3A{STAMP}",
+        "qty": "10", "uom_id": uoms["KG"]["id"], "status": "released",
+    }))
+    print(f"  首收即传 released : code={r['code']} msg={r['msg']}")
+    r = j(c.post("/api/v1/stock/lots", json={
+        "warehouse_id": wh_rm, "material_id": sugar, "lot_no": f"P3B{STAMP}",
+        "qty": "10", "uom_id": uoms["KG"]["id"],
+    }))
+    print(f"  首收不传 status : code={r['code']} status={r['data']['status']}")
+    r = j(c.post("/api/v1/stock/lots", json={
+        "warehouse_id": wh_rm, "material_id": sugar, "lot_no": f"P3B{STAMP}",
+        "qty": "5", "uom_id": uoms["KG"]["id"],
+    }))
+    print(f"  重复收货只加量 : code={r['code']} qty={r['data']['qty']} status={r['data']['status']}")
+    r = j(c.post("/api/v1/stock/lots", json={
+        "warehouse_id": wh_rm, "material_id": sugar, "lot_no": f"P3B{STAMP}",
+        "qty": "5", "uom_id": uoms["KG"]["id"], "status": "quarantined",
+    }))
+    print(f"  重复收货想改状态 : code={r['code']} msg={r['msg']}")
 
     print("\n>>> P1 第二增量验收完成")

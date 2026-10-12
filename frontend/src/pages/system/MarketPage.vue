@@ -42,6 +42,40 @@
       </template>
     </el-alert>
 
+    <!-- 已购概况：数字来自实例本地的授权快照，不是实时查 hub -->
+    <div v-if="status.bound" class="mb-6">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div class="text-xs opacity-60">{{ t('market.statPurchased') }}</div>
+          <div class="mt-1 text-2xl font-bold">{{ status.purchased_count ?? 0 }}</div>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div class="text-xs opacity-60">{{ t('market.statUpdatable') }}</div>
+          <div
+            class="mt-1 text-2xl font-bold"
+            :class="(status.updatable_count ?? 0) > 0 ? 'text-blue-600' : ''"
+          >
+            {{ status.updatable_count ?? 0 }}
+          </div>
+        </div>
+        <div class="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+          <div class="text-xs opacity-60">{{ t('market.statNearestExpiry') }}</div>
+          <div class="mt-1 text-2xl font-bold" :class="expirySoon ? 'text-red-600' : ''">
+            {{ expiryText }}
+          </div>
+        </div>
+      </div>
+      <p class="mt-2 text-xs opacity-50">
+        <span v-if="status.hub_reachable === false">{{ t('market.statHintStale') }}</span>
+        <span v-else-if="status.hub_reachable === null && !status.snapshot_synced_at">
+          {{ t('market.statHintPending') }}
+        </span>
+        <span v-else-if="status.snapshot_synced_at">
+          {{ t('market.statHintSynced', { t: snapshotText }) }}
+        </span>
+      </p>
+    </div>
+
     <!-- 应用列表 -->
     <div
       v-if="status.bound && apps.length > 0"
@@ -207,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { Link, Refresh, Loading } from '@element-plus/icons-vue'
@@ -232,7 +266,40 @@ const { t } = useI18n()
 
 const loading = ref(false)
 const apps = ref<MarketApp[]>([])
-const status = reactive<MarketStatus>({ hub_url: '', product: '', bound: false, account: '', instance_uid: '' })
+const status = reactive<MarketStatus>({
+  hub_url: '',
+  product: '',
+  bound: false,
+  account: '',
+  instance_uid: '',
+  hub_reachable: null,
+  purchased_count: 0,
+  updatable_count: 0,
+  nearest_expiry: null,
+  snapshot_synced_at: '',
+})
+
+// 概况口径：后端只读进程内授权快照，缺值按 0 /「无」显示，不做乐观推断。
+function _date(raw?: string | null): Date | null {
+  if (!raw) return null
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+const expiryDate = computed(() => _date(status.nearest_expiry))
+const expiryText = computed(() => {
+  if (!status.nearest_expiry) return t('market.noExpiry')
+  const d = expiryDate.value
+  return d ? d.toLocaleDateString() : String(status.nearest_expiry)
+})
+// 30 天内到期标红，与列表里「到期 {d}」的提醒口径一致
+const expirySoon = computed(() => {
+  const d = expiryDate.value
+  return !!d && d.getTime() - Date.now() < 30 * 86400000
+})
+const snapshotText = computed(() => {
+  const d = _date(status.snapshot_synced_at)
+  return d ? d.toLocaleString() : String(status.snapshot_synced_at || '')
+})
 
 const installingKey = ref('')
 const uninstallingKey = ref('')
@@ -274,8 +341,20 @@ function formatDate(s: string | null): string {
   return isNaN(d.getTime()) ? s : d.toLocaleDateString()
 }
 
+function verCmp(a: string, b: string): number {
+  const pa = String(a || '').split('.').map((x) => parseInt(x, 10) || 0)
+  const pb = String(b || '').split('.').map((x) => parseInt(x, 10) || 0)
+  const n = Math.max(pa.length, pb.length)
+  for (let i = 0; i < n; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d) return d > 0 ? 1 : -1
+  }
+  return 0
+}
+
 function hasUpdate(app: MarketApp): boolean {
-  return app.installed && !!app.latest_version && app.latest_version !== app.installed_version
+  // 仅当 hub 发布版本 > 本地已装版本时才提示更新，避免把降级当更新
+  return app.installed && !!app.latest_version && !!app.installed_version && verCmp(app.latest_version, app.installed_version) > 0
 }
 
 function openPortal(appKey?: string) {
@@ -303,6 +382,9 @@ async function fetchApps() {
     status.bound = res.bound
     status.account = res.account
     status.hub_url = res.hub_url
+    // /apps 在后端会顺手刷新授权快照，所以紧接着再取一次概况：
+    // 点「刷新」后列表与卡片同源，不会出现列表新、数字旧。
+    await fetchStatus()
   } catch (e) {
     console.error('fetchApps error:', e)
   } finally {

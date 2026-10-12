@@ -1,0 +1,29 @@
+{
+  "key": "order_planning",
+  "name": "订单与生产计划（接单+备货）",
+  "version": "1.2.0",
+  "description": "食品/流程制造的销售订单(MTO)与安全库存备货(MTS)统一驱动生产计划，计划下达自动生成核心生产批次（复用批次执行链），含齐套缺料预检、成品批→订单分配与发货。插件只建 ext_op_* 表，对核心 materials/recipes/stock_lots/batches 只读，计划↔批次用映射表表达，不改核心表结构。",
+  "icon": "Tickets",
+  "category": "planning",
+  "vendor": "Cenkor",
+  "product": "cenkor-process",
+  "dev_method": "extension",
+  "permissions": [
+    {
+      "code": "ext.order_planning.view",
+      "name": "查看订单与计划"
+    },
+    {
+      "code": "ext.order_planning.manage",
+      "name": "管理订单/计划/下达/发货"
+    }
+  ],
+  "menus": [
+    {
+      "title": "订单与生产计划",
+      "path": "/ext/order-planning",
+      "icon": "Tickets",
+      "permission": "ext.order_planning.view"
+    }
+  ]
+}

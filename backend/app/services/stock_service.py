@@ -143,7 +143,18 @@ def fefo_issue(db: Session, warehouse_id: int, material_id: int, need_qty: Decim
 
 
 def receive_lot(db: Session, payload) -> StockLot:
-    """批次收货入库（幂等键：warehouse + material + lot_no）。"""
+    """批次收货入库（幂等键：warehouse + material + lot_no）。
+
+    状态纪律（A5）：收货只产生 received / quarantined / rejected 三种起点，
+    released 一律由检验单判定（compliance_service.decide_coa）产生 —— 否则
+    有 stock.manage 的人收货时写一句 status=released 就绕过了整道放行闸门。
+    """
+    if payload.status in ("released", "consumed"):
+        raise BizError(
+            400,
+            f"收货不允许把批次直接置为 {payload.status}：放行请在「合规 → 检验单」对该批判定合格",
+        )
+
     exists = db.scalar(
         select(StockLot).where(
             StockLot.warehouse_id == payload.warehouse_id,
@@ -152,11 +163,20 @@ def receive_lot(db: Session, payload) -> StockLot:
         )
     )
     if exists:
+        # 收货只追加数量，无权改写批次状态：状态由检验单判定驱动。
+        # 否则「对同一批重复收货」会把 rejected/quarantined 静默解回 released，
+        # 已判不合格的批靠重新收货就能出货 —— 追溯/迎检场景的硬伤。
+        if exists.status == "consumed":
+            raise BizError(409, f"批次 {exists.lot_no} 已核销，不能再通过收货追加")
+        if payload.status and payload.status != exists.status:
+            raise BizError(
+                409,
+                f"批次 {exists.lot_no} 当前状态为 {exists.status}；收货接口不改变批次状态，"
+                f"放行/判不合格请在「合规 → 检验单」对该批判定",
+            )
         exists.qty = exists.qty + payload.qty
         if payload.expiry_at:
             exists.expiry_at = payload.expiry_at
-        if payload.status:
-            exists.status = payload.status
         return exists
 
     lot = StockLot(
@@ -167,7 +187,7 @@ def receive_lot(db: Session, payload) -> StockLot:
         uom_id=payload.uom_id,
         produced_at=payload.produced_at,
         expiry_at=payload.expiry_at,
-        status=payload.status,
+        status=payload.status or "received",
         supplier_lot_no=payload.supplier_lot_no,
     )
     db.add(lot)
@@ -212,6 +232,8 @@ def merge_lots(db: Session, payload) -> dict:
     lots = _lock_lots(db, ids)
     if len(lots) != len(set(ids)):
         raise BizError(409, "存在无效的库存批次")
+    if any(l.status == "consumed" for l in lots):
+        raise BizError(409, "已核销批次不可参与合批")
     if len({l.material_id for l in lots}) != 1:
         raise BizError(400, "合批要求所有批次为同一物料")
     if len({l.warehouse_id for l in lots}) != 1:
@@ -226,6 +248,11 @@ def merge_lots(db: Session, payload) -> dict:
 
     first = lots[0]
     expiries = [l.expiry_at for l in lots if l.expiry_at]
+    # 父批全released，子批继承released；混入任何未放行的父批，子批一律回received重新待检
+    parent_statuses = {l.status for l in lots}
+    child_status = payload.status or (
+        "released" if parent_statuses == {"released"} else "received"
+    )
     child = StockLot(
         warehouse_id=first.warehouse_id,
         material_id=first.material_id,
@@ -234,7 +261,7 @@ def merge_lots(db: Session, payload) -> dict:
         uom_id=first.uom_id,
         produced_at=datetime.now(),
         expiry_at=min(expiries) if expiries else None,
-        status=payload.status or "released",
+        status=child_status,
     )
     db.add(child)
     db.flush()

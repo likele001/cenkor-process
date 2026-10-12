@@ -20,6 +20,12 @@ def j(resp):
 
 
 with TestClient(app) as c:
+    # A2/A8 后业务端点需鉴权；种子已建 admin/admin123
+    login = j(c.post("/api/auth/login", json={"username": "admin", "password": "admin123"}))
+    if login.get("code") != 200:
+        raise SystemExit(f"登录失败，无法继续验收: {login}")
+    c.headers["Authorization"] = f"Bearer {login['data']['access_token']}"
+
     uoms = {u["code"]: u for u in j(c.get("/api/v1/uoms"))["data"]}
     mats = {m["code"]: m for m in j(c.get("/api/v1/materials"))["data"]}
     wh_rm = j(c.get("/api/v1/warehouses"))["data"][0]["id"]

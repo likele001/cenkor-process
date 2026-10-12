@@ -93,6 +93,13 @@
         <el-form-item :label="t('stock.expiryAt')">
           <el-date-picker v-model="receiveForm.expiry_at" type="date" value-format="YYYY-MM-DD" class="w-full" />
         </el-form-item>
+        <el-alert
+          :title="t('stock.receivePendingNote')"
+          type="info"
+          :closable="false"
+          show-icon
+          class="mb-2"
+        />
       </el-form>
       <template #footer>
         <el-button @click="receiveVisible = false">{{ t('common.cancel') }}</el-button>
@@ -224,7 +231,7 @@ const filters = reactive({
   material_id: undefined as number | undefined,
   status: undefined as string | undefined,
 })
-const statusOptions = ['received', 'frozen', 'consumed', 'expired', 'quarantined', 'rejected']
+const statusOptions = ['received', 'released', 'quarantined', 'rejected', 'consumed']
 
 function materialLabel(id: number) {
   const m = materials.value.find((x) => x.id === id)

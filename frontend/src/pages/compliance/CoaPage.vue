@@ -34,7 +34,7 @@
             </template>
           </el-table-column>
           <el-table-column :label="t('stock.lotNo')" width="110">
-            <template #default="{ row }">{{ row.lot_id ?? '—' }}</template>
+            <template #default="{ row }">{{ lotLabel(row.lot_id) }}</template>
           </el-table-column>
           <el-table-column :label="t('compliance.testedAt')" width="170">
             <template #default="{ row }">{{ row.tested_at || '—' }}</template>
@@ -86,7 +86,14 @@
             </el-select>
           </el-form-item>
           <el-form-item :label="t('stock.lotNo')">
-            <el-input v-model="form.lot_id" :placeholder="t('common.optional')" />
+            <el-select v-model="form.lot_id" class="w-full" clearable filterable @change="onLotChange">
+              <el-option
+                v-for="l in lots"
+                :key="l.id"
+                :label="`${l.lot_no} · ${materialLabel(l.material_id)} · ${label(l.status)}`"
+                :value="l.id"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item :label="t('compliance.sampleAt')">
             <el-date-picker v-model="form.sample_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" class="w-full" />
@@ -170,6 +177,7 @@ import AdminDataTable from '@/components/admin/AdminDataTable.vue'
 import AdminFilterBar from '@/components/admin/AdminFilterBar.vue'
 import { masterApi, type MaterialOut } from '@/api/master'
 import { complianceApi, type CoaOut } from '@/api/compliance'
+import { stockApi, type StockLotOut } from '@/api/stock'
 import { useStatus } from '@/composables/useStatus'
 
 const { t } = useI18n()
@@ -179,6 +187,7 @@ const loading = ref(false)
 const saving = ref(false)
 const rows = ref<CoaOut[]>([])
 const materials = ref<MaterialOut[]>([])
+const lots = ref<StockLotOut[]>([])
 
 const filters = reactive({
   material_id: undefined as number | undefined,
@@ -190,15 +199,22 @@ function materialLabel(id: number) {
   return m ? `${m.name} (${m.code})` : String(id)
 }
 
+function lotLabel(id?: number | null) {
+  if (!id) return '—'
+  return lots.value.find((l) => l.id === id)?.lot_no ?? String(id)
+}
+
 async function load() {
   loading.value = true
   try {
-    const [coaList, materialList] = await Promise.all([
+    const [coaList, materialList, lotList] = await Promise.all([
       complianceApi.listCoa({ material_id: filters.material_id, result: filters.result }),
       masterApi.listMaterials(),
+      stockApi.listLots(),
     ])
     rows.value = coaList
     materials.value = materialList
+    lots.value = lotList
   } finally {
     loading.value = false
   }
@@ -216,7 +232,7 @@ const form = reactive({
   material_id: undefined as number | undefined,
   coa_no: '',
   direction: 'incoming',
-  lot_id: '',
+  lot_id: undefined as number | undefined,
   sample_at: null as string | null,
   tested_at: null as string | null,
   note: '',
@@ -231,11 +247,17 @@ function addItem() {
   form.items.push({ name: '', value: '', spec: '' })
 }
 
+// 检验单必须对着批次所属物料开，否则放行判定会挂到错的物料上
+function onLotChange(id?: number) {
+  const lot = lots.value.find((l) => l.id === id)
+  if (lot) form.material_id = lot.material_id
+}
+
 function openCreate() {
   form.material_id = materials.value[0]?.id
   form.coa_no = ''
   form.direction = 'incoming'
-  form.lot_id = ''
+  form.lot_id = undefined
   form.sample_at = null
   form.tested_at = null
   form.note = ''
@@ -252,7 +274,7 @@ async function onCreate() {
     await complianceApi.createCoa({
       material_id: form.material_id as number,
       coa_no: form.coa_no.trim() || null,
-      lot_id: form.lot_id ? Number(form.lot_id) : null,
+      lot_id: form.lot_id ?? null,
       direction: form.direction,
       sample_at: form.sample_at,
       tested_at: form.tested_at,

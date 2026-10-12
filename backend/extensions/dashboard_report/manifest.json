@@ -1,0 +1,18 @@
+{
+  "key": "dashboard_report",
+  "name": "经营驾驶舱与数据大屏",
+  "version": "1.0.1",
+  "description": "面向食品/流程制造（cenkor-process）的跨域 BI 经营驾驶舱 / 数据大屏付费商业扩展：把散落在各分析应用的核心 KPI 聚合成一屏——生产（完成批次/产量/平均收率）、质量（CCP 合格率/CoA 合格率/不合格数）、物料（投料超差率）、库存（临期/过期批次、隔离量）、CIP（清洗失败）五大域统一呈现，支持设定经营目标与警戒阈值并按达成情况红绿灯着色；提供日趋势与风险告警清单，可一键切全屏大屏模式用于车间/办公室挂墙看板。插件只建 ext_dsh_target 存目标阈值，对核心一律只读，不改任何业务数据。",
+  "icon": "DataBoard",
+  "category": "production",
+  "vendor": "Cenkor",
+  "product": "cenkor-process",
+  "dev_method": "extension",
+  "permissions": [
+    { "code": "ext.dashboard_report.view", "name": "查看驾驶舱与大屏" },
+    { "code": "ext.dashboard_report.manage", "name": "维护 KPI 目标与警戒阈值" }
+  ],
+  "menus": [
+    { "title": "经营驾驶舱", "path": "/ext/dashboard-report", "icon": "DataBoard", "permission": "ext.dashboard_report.view" }
+  ]
+}
