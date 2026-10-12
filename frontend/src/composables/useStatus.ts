@@ -11,7 +11,8 @@ const TAG_MAP: Record<string, TagType> = {
   passed: 'success',
   ok: 'success',
   done: 'success',
-  received: 'success',
+  // 库存批次收货后停在 received（待放行），须检验单判定才转 released —— 用琥珀色标出待办
+  received: 'warning',
   draft: 'info',
   drafted: 'info',
   planned: 'info',

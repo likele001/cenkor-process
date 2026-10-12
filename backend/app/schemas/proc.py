@@ -5,7 +5,19 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# 批次状态机（与 models/proc.py 的 StockLot.status 列注释一致）：
+# received（待放行）→ released / quarantined / rejected，consumed 由出库/合批/拆批核销。
+# released 只能由检验单判定产生（compliance_service.decide_coa），收货接口无权改变它。
+LOT_STATUSES = ("received", "released", "quarantined", "rejected", "consumed")
+
+
+def _check_lot_status(value: str | None) -> str | None:
+    if value is not None and value not in LOT_STATUSES:
+        raise ValueError(f"批次状态必须是 {'/'.join(LOT_STATUSES)} 之一")
+    return value
 
 
 class ORMModel(BaseModel):
@@ -202,6 +214,11 @@ class ByproductIn(BaseModel):
     warehouse_id: int | None = None
     status: str = "received"
 
+    @field_validator("status")
+    @classmethod
+    def _status_known(cls, v: str) -> str:
+        return _check_lot_status(v)
+
 
 class BatchCompleteIn(BaseModel):
     dispenses: list[DispenseIn] = Field(default_factory=list)
@@ -232,8 +249,15 @@ class LotReceiptIn(BaseModel):
     uom_id: int
     produced_at: datetime | None = None
     expiry_at: datetime | None = None
-    status: str = "released"
+    # None = 不表态：新建落 received（待放行），重复收货不动已有状态。
+    # 默认值一旦是 released，CoA 那道闸门就等于没接线，故这里不给默认放行。
+    status: str | None = None
     supplier_lot_no: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status_known(cls, v: str | None) -> str | None:
+        return _check_lot_status(v)
 
 
 class StockLotOut(ORMModel):
@@ -319,7 +343,13 @@ class UomConvertOut(BaseModel):
 class LotMergeIn(BaseModel):
     lot_ids: list[int]
     lot_no: str | None = None
-    status: str = "released"
+    # None 时由服务按父批推断：父批全 released 才继承 released，否则落 received 重新待放行
+    status: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status_known(cls, v: str | None) -> str | None:
+        return _check_lot_status(v)
 
 
 class LotSplitPart(BaseModel):
@@ -331,6 +361,11 @@ class LotSplitPart(BaseModel):
 class LotSplitIn(BaseModel):
     parts: list[LotSplitPart]
     status: str | None = None
+
+    @field_validator("status")
+    @classmethod
+    def _status_known(cls, v: str | None) -> str | None:
+        return _check_lot_status(v)
 
 
 # ---------- P2 合规与质量 ----------
