@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     EXTENSIONS_ENABLED: bool = True
     EXTENSIONS_DIR: str = "./extensions"
 
+    # 应用中心（market）hub 地址白名单：实例会把 instance token / license_key 发到
+    # hub，这个值决定凭据送往谁。逗号分隔，按域后缀匹配（`cenkor.cn` 覆盖其全部子域）；
+    # `*` = 不限制（内网自建 hub 时用）。
+    MARKET_HUB_ALLOWED_HOSTS: str = "cenkor.cn,localhost,127.0.0.1"
+
     # P1 骨架：可选 API Key 守卫。为空时（dev）放行；正式接平台 RBAC 前的最小防线。
     API_KEY: str = ""
 
