@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     # `*` = 不限制（内网自建 hub 时用）。
     MARKET_HUB_ALLOWED_HOSTS: str = "cenkor.cn,localhost,127.0.0.1"
 
+    # 应用包完整性：默认强制校验 hub 下发的 X-Package-Sha256。老 hub / spoke 中转会
+    # 剥掉该响应头，此时安装会被拒绝；仅在内网自建且无法升级 hub 时才置 0 放行。
+    MARKET_REQUIRE_PACKAGE_SHA256: bool = True
+    MARKET_MAX_PACKAGE_MB: int = 50        # 下载包体上限（压缩后）
+    MARKET_MAX_EXTRACT_MB: int = 200       # 解压后总大小上限（防 zip 炸弹）
+    MARKET_MAX_EXTRACT_FILES: int = 2000   # 单包文件数上限
+
     # P1 骨架：可选 API Key 守卫。为空时（dev）放行；正式接平台 RBAC 前的最小防线。
     API_KEY: str = ""
 

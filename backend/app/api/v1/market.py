@@ -43,7 +43,8 @@ from app.extension_host.host import (
     hot_setup_extension,
     hot_teardown_extension,
 )
-from app.extension_host.loader import scan_extensions
+from app.extension_host.loader import mount_newly_enabled, scan_extensions
+from app.extension_host.manifest import is_valid_key
 from app.extension_host.state import runtime
 from app.models.system_setting import SystemSetting
 
@@ -77,11 +78,12 @@ class HubIn(BaseModel):
 
 
 class InstallIn(BaseModel):
-    app_key: str = Field(min_length=1, max_length=64)
+    # key 直接参与 extensions/ 下的路径拼接，禁止 `..`、`/`、绝对路径
+    app_key: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 class UninstallIn(BaseModel):
-    app_key: str = Field(min_length=1, max_length=64)
+    app_key: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
 # ── 配置读写 helpers ─────────────────────────────────────────────────────────
@@ -487,6 +489,14 @@ def sync_entitlements(db: Session) -> bool:
     synced_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     runtime.set_entitlement_snapshot(snapshot, synced_at, enforced=True)
     logger.info("[market] 授权快照已刷新（%d 项，已启用到期门控）", len(snapshot))
+    # 启动期对未启用的扩展不 import 代码，这里补挂「刚从过期/未授权翻回 active」的，
+    # 否则续费后要等重启才生效。
+    try:
+        newly = mount_newly_enabled(runtime.app)
+        if newly:
+            logger.info("[market] 授权恢复后补挂扩展: %s", ", ".join(newly))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("market.remount_after_sync_failed: %s", e)
     return True
 
 
@@ -666,37 +676,65 @@ def _download_package(db: Session, app_key: str, license_key: str) -> tuple[byte
 
     返回头而非改写包内 manifest：包是开发者自述，头是 hub 按 license.product 发的。
     经 hub/spoke 中转的下发路径不透传响应头，此时退化为空串，由 manifest 那道闸兜底。
+
+    完整性：默认要求 X-Package-Sha256；缺头即拒绝（老 hub 可置
+    MARKET_REQUIRE_PACKAGE_SHA256=0 兼容）。体积：边下边计数，超上限立即中断。
     """
     url = _store_url(db, f"cloud/packages/{app_key}")
+    limit = max(1, settings.MARKET_MAX_PACKAGE_MB) * 1024 * 1024
+    buf = bytearray()
     with httpx.Client(timeout=120, follow_redirects=True) as client:
-        resp = client.get(url, params={"license_key": license_key})
-    if resp.status_code == 403:
-        raise HTTPException(status_code=403, detail="未授权或授权已失效，请先在门户购买/领取该扩展")
-    if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"hub 返回错误：{resp.status_code} {resp.text[:200]}")
-    # 包体指纹校验：hub 随包下发**发布当时**算好的 SHA256。缺值即放行（老 hub 无此头，
-    # 或经 spoke 中转被剥掉），有值而不等就是拿到的字节与目录里那条发布记录不是同一份。
-    content = resp.content
-    expected = (resp.headers.get("X-Package-Sha256") or "").strip().lower()
-    if expected:
-        actual = hashlib.sha256(content).hexdigest()
-        if actual != expected:
-            logger.error(
-                "market.package_sha256_mismatch app=%s expected=%s actual=%s size=%s",
-                app_key, expected, actual, len(content),
-            )
+        with client.stream("GET", url, params={"license_key": license_key}) as resp:
+            if resp.status_code == 403:
+                raise HTTPException(status_code=403, detail="未授权或授权已失效，请先在门户购买/领取该扩展")
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"hub 返回错误：{resp.status_code}")
+            declared = resp.headers.get("Content-Length")
+            if declared and declared.isdigit() and int(declared) > limit:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"扩展包过大（{int(declared) // 1024} KB），上限 {settings.MARKET_MAX_PACKAGE_MB} MB",
+                )
+            for chunk in resp.iter_bytes():
+                buf.extend(chunk)
+                if len(buf) > limit:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"扩展包超过上限 {settings.MARKET_MAX_PACKAGE_MB} MB，已中断下载",
+                    )
+            expected = (resp.headers.get("X-Package-Sha256") or "").strip().lower()
+            hub_product = (resp.headers.get("X-App-Product") or "").strip()
+
+    content = bytes(buf)
+    if not expected:
+        if settings.MARKET_REQUIRE_PACKAGE_SHA256:
             raise HTTPException(
                 status_code=502,
                 detail=(
-                    f"扩展包校验失败：SHA256 与 hub 发布记录不一致"
-                    f"（期望 {expected[:12]}…，实得 {actual[:12]}…），已拒绝安装"
+                    "hub 未下发包指纹（X-Package-Sha256），已拒绝安装；"
+                    "如为内网老 hub 可在 .env 设 MARKET_REQUIRE_PACKAGE_SHA256=0"
                 ),
             )
-    return content, (resp.headers.get("X-App-Product") or "").strip()
+        logger.warning("market.package_sha256_missing app=%s size=%s（已按配置放行）", app_key, len(content))
+        return content, hub_product
+    actual = hashlib.sha256(content).hexdigest()
+    if actual != expected:
+        logger.error(
+            "market.package_sha256_mismatch app=%s expected=%s actual=%s size=%s",
+            app_key, expected, actual, len(content),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"扩展包校验失败：SHA256 与 hub 发布记录不一致"
+                f"（期望 {expected[:12]}…，实得 {actual[:12]}…），已拒绝安装"
+            ),
+        )
+    return content, hub_product
 
 
 def _install_extension(package_bytes: bytes, app_key: str) -> dict:
-    """解压并安装扩展包到 extensions/ 目录。"""
+    """解压并安装扩展包到 extensions/ 目录（key 白名单 + 解压体积/文件数上限）。"""
     extensions_dir = extensions_base_dir()
     extensions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -709,8 +747,11 @@ def _install_extension(package_bytes: bytes, app_key: str) -> dict:
         if not manifest_data:
             raise HTTPException(status_code=400, detail="扩展包缺少 manifest.json")
 
-        pkg_key = manifest_data.get("key", "")
+        pkg_key = str(manifest_data.get("key") or "")
         pkg_version = manifest_data.get("version", "")
+        # key 会直接拼成目标目录并用于 rmtree，必须在落盘前挡住路径穿越
+        if not is_valid_key(pkg_key):
+            raise HTTPException(status_code=400, detail=f"扩展包 key 非法：{pkg_key!r}")
         if pkg_key != app_key:
             raise HTTPException(status_code=400, detail=f"扩展 key 不匹配：{pkg_key} != {app_key}")
 
@@ -724,13 +765,39 @@ def _install_extension(package_bytes: bytes, app_key: str) -> dict:
                 status_code=400, detail=f"扩展包产品不匹配：{pkg_product} != {PRODUCT}"
             )
 
+        # 先审后写：按 ZipInfo 的声明大小预检，避免把炸弹落盘
+        max_bytes = max(1, settings.MARKET_MAX_EXTRACT_MB) * 1024 * 1024
+        max_files = max(1, settings.MARKET_MAX_EXTRACT_FILES)
+        members = []
+        total = 0
+        for info in zf.infolist():
+            name = info.filename
+            if info.is_dir():
+                continue
+            # 路径校验必须先于隐藏文件跳过：`../../evil` 也以 `.` 开头
+            pure = Path(name)
+            if pure.is_absolute() or ".." in pure.parts:
+                raise HTTPException(status_code=400, detail=f"扩展包内含非法路径：{name!r}")
+            if name.startswith(".") or "__MACOSX" in name:
+                continue
+            total += info.file_size
+            if total > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"扩展包解压后超过上限 {settings.MARKET_MAX_EXTRACT_MB} MB，已拒绝安装",
+                )
+            members.append(info)
+        if len(members) > max_files:
+            raise HTTPException(
+                status_code=413,
+                detail=f"扩展包文件数超过上限 {settings.MARKET_MAX_EXTRACT_FILES}，已拒绝安装",
+            )
+
         target_dir = extensions_dir / pkg_key
         if target_dir.exists():
             shutil.rmtree(target_dir)
-        for member in zf.namelist():
-            if "__MACOSX" in member or member.startswith("."):
-                continue
-            zf.extract(member, str(target_dir))
+        for info in members:
+            zf.extract(info, str(target_dir))
         for f in target_dir.rglob("*"):
             if f.is_file():
                 f.chmod(0o644)

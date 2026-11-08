@@ -54,6 +54,8 @@ class ExtensionRuntime:
     def __init__(self) -> None:
         self.extensions_dir: Path | None = None
         self.store: StateStore | None = None
+        self.app = None                            # FastAPI 实例（续费后补挂路由用）
+        self.mounted_keys: set[str] = set()        # 已 import 并挂载路由的扩展 key
         self.installed: dict[str, dict] = {}      # key -> {"manifest": ..., "path": Path}
         self.entitlements: dict[str, dict] = {}   # app_key -> 授权快照条目
         self.entitlement_enforced: bool = False    # 是否已根据 hub 已购快照启用运行期门控
@@ -147,6 +149,8 @@ class ExtensionRuntime:
         """重置运行时状态（测试/CLI 使用）。"""
         self.extensions_dir = None
         self.store = None
+        self.app = None
+        self.mounted_keys = set()
         self.installed = {}
         self.entitlements = {}
         self.entitlement_enforced = False

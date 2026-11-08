@@ -107,6 +107,8 @@ def unmount_extension_router(app: FastAPI, key: str) -> int:
     removed = len(routes) - len(keep)
     if removed:
         routes[:] = keep
+    if removed:
+        runtime.mounted_keys.discard(key)
     return removed
 
 
@@ -140,8 +142,29 @@ def mount_extension_router(app: FastAPI, key: str, ext_path: Path, auth_dependen
         tags=[f"ext-{key}"],
         dependencies=[*auth_dependencies, Depends(require_extension(key))],
     )
+    runtime.mounted_keys.add(key)
     logger.info("[extension] 运行期热挂载扩展路由: /api/extensions/%s", key)
     return True
+
+
+def mount_newly_enabled(app: FastAPI, auth_dependencies=None) -> list[str]:
+    """把「已装、已启用、尚未挂载」的扩展补挂上（授权从过期翻回 active 时用）。
+
+    启动期对未启用的扩展不 import 代码（避免停用后模块级副作用继续跑），
+    所以续费恢复授权后必须补一次挂载，否则要等重启才生效。
+    """
+    if app is None:
+        return []
+    mounted: list[str] = []
+    for key, info in runtime.installed.items():
+        if key in runtime.mounted_keys or not runtime.is_enabled(key):
+            continue
+        try:
+            if mount_extension_router(app, key, Path(info["path"]), auth_dependencies):
+                mounted.append(key)
+        except Exception as e:  # noqa: BLE001 - 单个扩展失败不影响其他扩展
+            logger.error("[extension] 补挂 %s 失败: %s", key, e)
+    return mounted
 
 
 def mount_extensions(app: FastAPI, base_dir: Path, auth_dependencies=None) -> None:
@@ -153,10 +176,17 @@ def mount_extensions(app: FastAPI, base_dir: Path, auth_dependencies=None) -> No
 
     runtime.extensions_dir = base_dir
     runtime.store = StateStore(base_dir / ".state")
+    runtime.app = app
+    runtime.mounted_keys.clear()
     runtime.load_from_disk()
     runtime.installed = scan_extensions(base_dir)
 
     for key, info in runtime.installed.items():
+        if not runtime.is_enabled(key):
+            logger.info(
+                "[extension] 未启用，跳过加载代码: %s（授权状态: %s）", key, runtime.entitlement_state(key)
+            )
+            continue
         try:
             ext_router = load_extension_router(info["path"], key)
         except Exception as e:  # noqa: BLE001 - 单个扩展加载失败不影响其他扩展
@@ -170,6 +200,7 @@ def mount_extensions(app: FastAPI, base_dir: Path, auth_dependencies=None) -> No
             tags=[f"ext-{key}"],
             dependencies=[*auth_dependencies, Depends(require_extension(key))],
         )
+        runtime.mounted_keys.add(key)
         logger.info("[extension] 已挂载扩展路由: /api/extensions/%s", key)
 
 

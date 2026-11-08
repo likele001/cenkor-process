@@ -23,12 +23,22 @@ manifest v1 结构::
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 
 class ManifestError(ValueError):
     """manifest 不合法。"""
+
+
+# 扩展 key 同时是目录名，直接参与路径拼接；必须在入口挡住 `..`、`/`、绝对路径等。
+KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
+
+
+def is_valid_key(key: str) -> bool:
+    """扩展 key 是否安全（字母数字开头，仅 _ . -，最长 64 字符）。"""
+    return bool(KEY_RE.fullmatch(str(key or "")))
 
 
 @dataclass
@@ -77,6 +87,10 @@ def load_manifest(ext_dir: Path, check_dir_name: bool = True) -> ExtensionManife
         value = raw.get(name)
         if not value or not isinstance(value, str):
             raise ManifestError(f"manifest.json 缺少必填字段 {name}")
+    if not is_valid_key(raw["key"]):
+        raise ManifestError(
+            f"manifest key 非法（仅允许字母数字及 _ . -，且不得以符号开头）：{raw['key']!r}"
+        )
     if check_dir_name and ext_dir.name != raw["key"]:
         raise ManifestError(f"manifest key（{raw['key']}）与目录名（{ext_dir.name}）不一致")
 
