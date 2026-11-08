@@ -17,8 +17,8 @@ dist.bak*/
 _bak/
 
 # 环境与密钥
-.env
-.env.*.bak*
+.env*
+!.env.example
 *.bak_*
 .user.ini
 

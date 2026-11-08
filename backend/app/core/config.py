@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8600
 
-    DB_URL: str = "mysql+pymysql://cenkorpro:REDACTED_DB_PASSWORD@127.0.0.1:3306/cenkorpro?charset=utf8mb4"
+    # 真实连接串放 backend/.env（已 git 忽略）；此处仅保留占位默认值，避免凭据入库
+    DB_URL: str = "mysql+pymysql://user:password@127.0.0.1:3306/cenkorpro?charset=utf8mb4"
     DB_ECHO: bool = False
     # schema 已改由 Alembic 版本化管理（`alembic upgrade head`）；默认关闭启动自动建表，
     # 避免 create_all 抢建表与迁移冲突。仅本地临时起库可临时置 True。
