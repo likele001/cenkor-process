@@ -3,13 +3,13 @@
 > 配套文档：开发执行见 `DEVELOPMENT.md`，商业变现见 `COMMERCIAL_PLAN.md`（如有）。
 > 前提：本产品 fork CenkorMES 胶水层，Vue3+MySQL，模块化单体；分发挂 cenkor-admin 市场 `product="cenkor-process"`。
 
-## 0. 前提：扩展宿主（可插拔的地基）
-宿主机制当前只在 CenkorMES，cenkor-process 尚未移植。需 fork 过来（详见 DEVELOPMENT.md A1）：
-- 后端 `app/extension_host/{__init__,manifest,loader,state,host}.py`：扫 `extensions/` → 校验 manifest → 幂等跑 `migrations.sql` → 挂 `/api/extensions/{key}` → 运行期热挂/卸载免重启 → `require_extension(key)` 授权/到期门控（文件态 `.state/`，不建库表）。
-- `config.EXTENSIONS_DIR` + `main.py` 启动调 `mount_extensions(app, base)`。
-- `api/admin/market/router.py`：在线安装/解压/卸载（复用热加载引擎）。
+## 0. 前提：扩展宿主（可插拔的地基，已落地）
+扩展宿主已完成移植并在生产运行（`backend/app/extension_host/`），不再依赖 CenkorMES：
+- 后端 `app/extension_host/{__init__,manifest,loader,state,host}.py`：扫 `extensions/` → 校验 manifest（含 `product` 产品轴）→ 幂等跑 `migrations.sql` → 挂 `/api/extensions/{key}` → 运行期热挂/卸载免重启 → `require_extension(key)` 授权/到期门控（文件态 `.state/`，不建库表）。
+- `config.EXTENSIONS_DIR` + `main.py` 启动调 `extension_host.mount_all(app)` 并执行 `startup_host()`。
+- `api/v1/market.py`：设备码绑定换 instance_token、hub 白名单下载、SHA256 校验、在线安装/卸载（复用热加载引擎）、授权 15 分钟同步与到期自动停用。
 - 前端：`window.__registerExtension({key,menus,routes})` + 动态路由 + Bearer（token 键 `cenkorpro_admin_token`）。
-- 平台侧 cenkor-admin 多产品分发**已原生支持**，无需改。
+- 平台侧 cenkor-admin 多产品分发**已原生支持**（`product="cenkor-process"`）。
 
 ## 1. 划分原则
 - **核心内核**（不可插拔）：被反复依赖的地基对象 + 断链即崩的追溯链 + 合规红线 + 权限/审计地基 + 扩展宿主本身。

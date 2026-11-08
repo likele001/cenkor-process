@@ -1,7 +1,10 @@
-# CenkorProcess（流程制造引擎 · P1 骨架）
+# CenkorProcess（流程制造引擎）
 
-食品 / 流程制造的**独立第二产品**（决策 C）。复用 CenkorMES 的胶水层，领域内核以
-「配方 + 批次(lot) + 罐/线 + 效期(FEFO) + 谱系」为一级对象重建。详见 `cenkor-process开发计划.md`。
+食品 / 流程制造的**独立第二产品**（决策 C）。核心引擎以 **AGPL-3.0** 开源，商业能力以闭源插件经
+cenkor-admin 应用市场分发；领域内核以「配方 + 批次(lot) + 罐/线 + 效期(FEFO) + 谱系」为一级对象重建。
+
+- 许可证：`LICENSE`（AGPL-3.0） · 贡献者协议：`docs/CLA.md`
+- 文档：`docs/ARCHITECTURE.md`（架构） · `docs/DEVELOPMENT.md`（开发顺序） · `docs/COMMERCIAL_PLAN.md`（商业化）
 
 ## 目录
 
@@ -15,8 +18,11 @@ backend/
       recipe_service.py  # 配方缩放 + 批次快照
       stock_service.py   # FEFO 出库 / 收货 / 谱系
       batch_service.py   # 批次产出入账（单事务原子）
-    api/v1/      # master / recipe / batch / stock
-    main.py      # 入口 + 幂等种子
+    extension_host/      # 扩展宿主：manifest（含 product 产品轴）/ loader / host / state，热挂载免重启
+    api/v1/
+      market.py          # 应用市场：设备码绑定、hub 白名单下载、SHA256 校验、热安装、授权同步
+    main.py      # 入口 + 幂等种子 + 扩展挂载 + 授权线程
+backend/extensions/      # 本地已装商业扩展（dashboard_report / order_planning …）
 ```
 
 ## 运行
@@ -95,3 +101,9 @@ curl http://127.0.0.1:8600/api/v1/stock/genealogy/4
 ## 许可
 
 AGPL-3.0（与 CenkorMES 骨架一致）。
+
+## 许可证与商业边界
+
+- 核心引擎：AGPL-3.0（见 `LICENSE`）。可自由部署、修改、自用；对外提供网络服务时须按 AGPL 向用户提供对应源码。
+- 商业扩展：独立私有仓，经 cenkor-admin 市场按 `product="cenkor-process"` 分发，由 `require_extension(key)` 授权与到期停用；扩展只建自有 `ext_*` 表，对核心表只读。
+- 贡献：提交前须同意 `docs/CLA.md`。
