@@ -29,3 +29,6 @@ logs/
 
 # 扩展宿主运行期状态（迁移指纹/.state 等），源码样例目录不受影响
 backend/extensions/.state/
+
+# 商业扩展（闭源）：不入开源仓库，由应用市场按 product=cenkor-process 分发
+backend/extensions/*/
